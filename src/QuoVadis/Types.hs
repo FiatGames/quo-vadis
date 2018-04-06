@@ -129,6 +129,8 @@ makeMove gs mv = flip execState gs $ case mv of
   Bribe p ls -> gsBribes %= M.alter (const $ if null ls then Nothing else Just ls) p
 
   VoteOver -> do
+
+    --Figure out votes
     Just (Edge f t) <- use gsInProgressVote
     forSelf <- numForSelf f
     votesFromOthers <- use gsVotes
@@ -139,16 +141,18 @@ makeMove gs mv = flip execState gs $ case mv of
     when (totalVotes == needed) $ mapM_ giveSupportLaurel $ M.toList votesFromOthers
     when (totalVotes > needed) $ replicateM_ (needed - forSelf) $ dispenseLaurel gsILaurelReserve gsLaurelsToDispense (:)
     gsVotes .= mempty
+    gsInProgressVote .= Nothing
 
+    --Figure out bribes
     bribes <- use gsBribes
     mapM_ transferBribe $ M.toList bribes
     gsBribes .= mempty
 
-    gsInProgressVote .= Nothing
-
+    --Is the game over?
     Just i <- preuse $ innerSanctum . cPieces
     when (M.size i == 5) $ gsGameOver .= True
 
+    --Is it the next players turn?
     haveCaeser <- use gsPickedUpCaeser
     anyLaurelsToGive <- not . null <$> use gsLaurelsToDispense
     gameOver <- use gsGameOver
