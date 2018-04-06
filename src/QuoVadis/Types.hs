@@ -1,12 +1,20 @@
 {-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes        #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
 module QuoVadis.Types where
 
 import           Control.Lens
-import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
+import           Control.Monad
+import           Control.Monad.State.Strict
+import           Data.Hashable
+import           Data.HashMap.Strict        (HashMap)
+import qualified Data.HashMap.Strict        as M
+import           Data.List                  as L
+import           Data.Maybe
+import           Data.Monoid
 import           GHC.Generics
 
 data Laurel = Laurel
@@ -18,63 +26,95 @@ makeLenses ''Laurel
 
 type Player = Int
 
-type Senator = ()
+type NumSenators = Int
 
 data Committee = Committee
   { _cNum    :: !Int
-  , _cPieces :: !(Map Player [Senator])
+  , _cPieces :: !(HashMap Player NumSenators)
   }
   deriving (Eq, Show, Generic)
 makeLenses ''Committee
 
 type BoardSpace = Int
 
-type Board = Map BoardSpace Committee
+type Board = HashMap BoardSpace Committee
 
-type Edges = Map (BoardSpace,BoardSpace) (Maybe (Laurel, Bool))
+data Edge = Edge
+  { _eFrom :: !BoardSpace
+  , _eTo   :: !BoardSpace
+  }
+  deriving (Eq, Show, Ord, Generic)
+makeLenses ''Edge
+
+instance Hashable Edge where
+  hashWithSalt s (Edge x y) = x + y + s
+
+type LabeledEdges = HashMap Edge (Maybe Laurel)
 
 data PlayerState = PlayerState
-  { _psReserve :: ![Senator]
+  { _psReserve :: !NumSenators
   , _psLaurels :: ![Laurel]
   }
   deriving (Eq, Show, Generic)
 makeLenses ''PlayerState
 
+type NumVotes = Int
+
 data GameState = GameState
-  { _gsPlayerStates   :: !(Map Player PlayerState)
+  { _gsPlayerStates   :: !(HashMap Player PlayerState)
   , _gsLaurelReserve  :: ![Laurel]
   , _gsBoard          :: !Board
-  , _gsEdges          :: !Edges
+  , _gsEdges          :: !LabeledEdges
   , _gsILaurelReserve :: ![Laurel]
+  , _gsCaeser         :: Edge
+  , _gsCurrentTurn    :: Player
+  , _gsVotes          :: !(HashMap Player NumVotes)
+  , _gsBribes         :: !(HashMap Player [Laurel])
+  , _gsInProgressVote :: Maybe Edge
   }
   deriving (Eq, Show, Generic)
 makeLenses ''GameState
 
+data Move
+  = MoveCaeser Edge
+  | StartSenator BoardSpace
+  | CallVote BoardSpace BoardSpace
+  | CastVote Player NumVotes
+  | Bribe Player [Laurel]
+  | VoteOver
+
 initialPlayerState :: PlayerState
 initialPlayerState = PlayerState
-  { _psReserve= replicate 8 ()
+  { _psReserve= 8
   , _psLaurels= []
   }
 
-initialEdges :: [Laurel] -> ([Laurel], Edges)
+canBringIntoGame :: Int -> Board -> Bool
+canBringIntoGame x b
+  | x == 0 || x == 1 || x == 2 || x == 3 = case b^.at x of
+    Nothing -> False
+    Just c  -> (c^.cNum) > getSum (foldMap Sum (c^.cPieces))
+  | otherwise = False
+
+initialEdges :: [Laurel] -> ([Laurel], LabeledEdges)
 initialEdges (l1:l2:l3:l4:l5:l6:l7:l8:l9:l10:ls) = (ls, M.fromList
-  [ ((0,4),Nothing)
-  , ((4,8),Nothing)
-  , ((8,12),Just (l1,False))
-  , ((12,13),Just (l2,False))
-  , ((1,8),Just (l3,False))
-  , ((1,5),Just (l4,False))
-  , ((5,9),Nothing)
-  , ((9,13),Just (l5,True))
-  , ((2,6),Nothing)
-  , ((6,9),Just (l6,False))
-  , ((6,11),Just (l7,False))
-  , ((11,14),Nothing)
-  , ((14,13),Just (l8,False))
-  , ((3,6),Just (l9,False))
-  , ((3,7),Just (l10,False))
-  , ((7,10),Nothing)
-  , ((10,14),Nothing)
+  [ (Edge 0 4,Nothing)
+  , (Edge 4 8,Nothing)
+  , (Edge 8 12,Just l1)
+  , (Edge 12 13,Just l2)
+  , (Edge 1 8,Just l3)
+  , (Edge 1 5,Just l4)
+  , (Edge 5 9,Nothing)
+  , (Edge 9 13,Just l5)
+  , (Edge 2 6,Nothing)
+  , (Edge 6 9,Just l6)
+  , (Edge 6 11,Just l7)
+  , (Edge 11 14,Nothing)
+  , (Edge 14 13,Just l8)
+  , (Edge 3 6,Just l9)
+  , (Edge 3 7,Just l10)
+  , (Edge 7 10,Nothing)
+  , (Edge 10 14,Nothing)
   ])
 initialEdges _ = error "Bad number of laurels"
 
@@ -115,5 +155,84 @@ initialGameState reserve ps = GameState
   , _gsBoard = initialBoardState
   , _gsEdges = edges
   , _gsILaurelReserve = replicate 18 (Laurel 1 False)
+  , _gsCaeser = Edge 9 13
+  , _gsCurrentTurn = 0
+  , _gsBribes = mempty
+  , _gsVotes = mempty
+  , _gsInProgressVote = Nothing
   }
   where (reserve', edges) = initialEdges reserve
+
+
+makeMove :: GameState -> Move -> GameState
+makeMove gs mv = flip execState gs $ case mv of
+  MoveCaeser e -> do
+    gsCaeser .= e
+    nextTurn
+
+  StartSenator s -> do
+    currentTurn <- use gsCurrentTurn
+    addToCommittee s
+    gsPlayerStates . at currentTurn . _Just . psReserve %= flip (-) 1
+    nextTurn
+
+  CallVote f t -> do
+      forSelf <- numForSelf f
+      needed <- votesNeeded f
+      caeser <- caeserEdge f t
+      if forSelf >= needed || caeser
+      then do
+        moveSenator f t
+        nextTurn
+      else gsInProgressVote .= Just (Edge f t)
+
+  CastVote p votes -> gsVotes %= M.alter (const $ if votes == 0 then Nothing else Just votes) p
+
+  Bribe p ls -> gsBribes %= M.alter (const $ if null ls then Nothing else Just ls) p
+
+  VoteOver -> do
+    Just (Edge f t) <- use gsInProgressVote
+    forSelf <- numForSelf f
+    numFor <- (forSelf +) . getSum . foldMap Sum <$> use gsVotes
+    needed <- votesNeeded f
+    when (numFor >= needed) $ moveSenator f t
+    mapM_ transferBribe $ M.toList $ gs ^. gsBribes
+    gsBribes .= mempty
+    gsVotes .= mempty
+    gsInProgressVote .= Nothing
+    nextTurn
+
+  where
+    transferBribe (p,b) = do
+      currentTurn <- use gsCurrentTurn
+      laurelsForPlayer currentTurn %= flip (L.\\) b
+      laurelsForPlayer p %= (++) b
+
+    laurelsForPlayer p = gsPlayerStates . at p . _Just . psLaurels
+
+    moveSenator f t = do
+      removeFromCommitte f
+      addToCommittee t
+
+    boardAt s = gsBoard . at s . _Just
+
+    removeFromCommitte = changeCommittee (Just . maybe 0 (flip (-) 1))
+    addToCommittee = changeCommittee (Just . maybe 1 (1 +))
+    changeCommittee f s = do
+      currentTurn <- use gsCurrentTurn
+      (boardAt s . cPieces) %= M.alter f currentTurn
+
+    numForSelf s = do
+      currentTurn <- use gsCurrentTurn
+      fromMaybe (0 :: Int) <$> preuse (boardAt s . cPieces . at currentTurn . _Just)
+
+    votesNeeded s = do
+      maxInC <- fromMaybe 0 <$> preuse (boardAt s . cNum)
+      pure $ ceiling $ fromIntegral maxInC / 2
+
+    nextTurn = do
+      currentTurn <- use gsCurrentTurn
+      numPlayers <- M.size <$> use gsPlayerStates
+      gsCurrentTurn .= (currentTurn + 1) `mod` (numPlayers - 1)
+
+    caeserEdge s1 s2 = (==) (Edge s1 s2) <$> use gsCaeser
