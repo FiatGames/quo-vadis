@@ -105,6 +105,7 @@ makeMove gs mv = flip execState gs $ case mv of
   MoveCaeser e -> do
     gsCaeser .= e
     gsPickedUpCaeser .= False
+    checkGameOver
     nextTurn
 
   StartSenator s -> do
@@ -148,22 +149,23 @@ makeMove gs mv = flip execState gs $ case mv of
     mapM_ transferBribe $ M.toList bribes
     gsBribes .= mempty
 
-    --Is the game over?
-    Just i <- preuse $ innerSanctum . cPieces
-    when (M.size i == 5) $ gsGameOver .= True
-
     --Is it the next players turn?
     haveCaeser <- use gsPickedUpCaeser
     anyLaurelsToGive <- not . null <$> use gsLaurelsToDispense
-    gameOver <- use gsGameOver
-    unless (haveCaeser || anyLaurelsToGive || gameOver) nextTurn
+    unless anyLaurelsToGive checkGameOver
+    unless (haveCaeser || anyLaurelsToGive) nextTurn
 
   DispenseSupportLaurel p -> do
     dispenseLaurel gsLaurelsToDispense (gsPlayerStates . at p . _Just . psLaurels) (:)
     noMoreToGive <- null <$> use gsLaurelsToDispense
+    checkGameOver
     when noMoreToGive nextTurn
 
   where
+    checkGameOver = do
+      Just i <- preuse $ innerSanctum . cPieces
+      when (M.size i == 5) $ gsGameOver .= True
+
     transferBribe (p,b) = do
       currentTurn <- use gsCurrentTurn
       laurelsForPlayer currentTurn %= \ls -> (L.\\) ls b
