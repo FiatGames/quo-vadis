@@ -107,8 +107,6 @@ main = hspec $ do
     it "Starts next turn" $
       moveThroughCaeser ^. gsCurrentTurn `shouldBe` 2
   describe "Moves for In Progress Vote" $ do
-    it "Bribes" $
-      moves 1 voteInProgress `shouldBe` [Bribe 2 [Laurel {_lScore = 3, _lIsCaeser = False}],Bribe 2 [Laurel {_lScore = 4, _lIsCaeser = False}],Bribe 2 [Laurel {_lScore = 4, _lIsCaeser = False},Laurel {_lScore = 3, _lIsCaeser = False}],Bribe 3 [Laurel {_lScore = 3, _lIsCaeser = False}],Bribe 3 [Laurel {_lScore = 4, _lIsCaeser = False}],Bribe 3 [Laurel {_lScore = 4, _lIsCaeser = False},Laurel {_lScore = 3, _lIsCaeser = False}],Bribe 4 [Laurel {_lScore = 3, _lIsCaeser = False}],Bribe 4 [Laurel {_lScore = 4, _lIsCaeser = False}],Bribe 4 [Laurel {_lScore = 4, _lIsCaeser = False},Laurel {_lScore = 3, _lIsCaeser = False}],Bribe 5 [Laurel {_lScore = 3, _lIsCaeser = False}],Bribe 5 [Laurel {_lScore = 4, _lIsCaeser = False}],Bribe 5 [Laurel {_lScore = 4, _lIsCaeser = False},Laurel {_lScore = 3, _lIsCaeser = False}]]
     it "CastVotes" $
       moves 2 voteInProgress `shouldBe` [CastVote 2 1]
   describe "Moves for picked up caeser laurel" $
@@ -135,7 +133,7 @@ caesarMove = makeTestMoves [MoveCaeser (Edge 8 12)]
 startFirst = makeTestMoves [StartSenator 1]
 startSecond = makeTestMoves [StartSenator 1, StartSenator 1]
 noHelp = makeTestMoves [StartSenator 0, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, CallVote (Edge 0 4)]
-needHelpFails = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, CallVote (Edge 1 8), Bribe 2 [Laurel 4 False], Bribe 3 [Laurel 3 False], CastVote 2 1, VoteOver]
+needHelpFails = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, CallVote (Edge 1 8), Bribe 1 2 [Laurel 4 False], Bribe 1 3 [Laurel 3 False], CastVote 2 1, VoteOver]
 needHelpSucceed = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, CallVote (Edge 1 8), CastVote 2 1, CastVote 3 1, VoteOver]
 tooMuchSupport = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, CallVote (Edge 1 8), CastVote 2 1, CastVote 3 1, CastVote 4 1, VoteOver]
 dispenseLaurels = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, CallVote (Edge 1 8), CastVote 2 1, CastVote 3 1, CastVote 4 1, VoteOver, DispenseSupportLaurel 2, DispenseSupportLaurel 3]

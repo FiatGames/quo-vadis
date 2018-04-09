@@ -73,7 +73,7 @@ data GameState = GameState
   , _gsCaeser            :: !Edge
   , _gsCurrentTurn       :: !Player
   , _gsVotes             :: !(HashMap Player NumVotes)
-  , _gsBribes            :: !(HashMap Player [Laurel])
+  , _gsBribes            :: !(HashMap Player (HashMap Player [Laurel]))
   , _gsInProgressVote    :: !(Maybe Edge)
   , _gsLaurelsToDispense :: ![Laurel]
   , _gsPickedUpCaeser    :: !Bool
@@ -88,7 +88,7 @@ data Move
   | StartSenator BoardSpace
   | CallVote Edge
   | CastVote Player NumVotes
-  | Bribe Player [Laurel]
+  | Bribe Player Player [Laurel]
   | VoteOver
   | DispenseSupportLaurel Player
   deriving (Eq, Show)
@@ -174,7 +174,9 @@ makeMove gs mv = flip execState gs $ case mv of
 
   CastVote p votes -> gsVotes %= M.alter (const $ if votes == 0 then Nothing else Just votes) p
 
-  Bribe p ls -> gsBribes %= M.alter (const $ if null ls then Nothing else Just ls) p
+  Bribe p1 p2 ls -> gsBribes . at p1 %= Just . \case
+    Nothing -> M.singleton p2 ls
+    Just m -> M.alter (const $ if null ls then Nothing else Just ls) p2 m
 
   VoteOver -> do
     --Figure out votes
@@ -191,7 +193,7 @@ makeMove gs mv = flip execState gs $ case mv of
 
     --Figure out bribes
     bribes <- use gsBribes
-    mapM_ transferBribe $ M.toList bribes
+    mapM_ (\(p,bs) -> mapM_ (uncurry (transferBribe p)) bs) $ M.toList $ fmap M.toList bribes
     gsBribes .= mempty
 
     --Is it the next players turn?
@@ -218,10 +220,9 @@ makeMove gs mv = flip execState gs $ case mv of
         gsWinners .= Just (filter beaten $ M.keys i)
       use gsWinners
 
-    transferBribe (p,b) = do
-      currPlayer <- use gsCurrentTurn
-      laurelsForPlayer currPlayer %= \ls -> (L.\\) ls b
-      laurelsForPlayer p %= (++) b
+    transferBribe p1 p2 b = do
+      laurelsForPlayer p1 %= \ls -> (L.\\) ls b
+      laurelsForPlayer p2 %= (++) b
 
     dispenseLaurel :: MonadState GameState m => (Laurel -> f Laurel -> f Laurel) -> Lens' GameState [Laurel] -> ASetter' GameState (f Laurel) -> m ()
     dispenseLaurel with f t = do
@@ -277,17 +278,14 @@ moves p gs
   | myTurn = caeserMoves ++ startSenators ++ callVotes
   | otherwise = []
   where
-    voteInProgressMoves = if myTurn
-      then [Bribe p2 ls | p2 <- M.keys votingPeople, ls <- S.toList (S.fromList (L.subsequences laurelsToGive)), not (null ls) ]
-      else [CastVote p v | v <- maybe [] (enumFromTo 1) (length <$> M.lookup p votingPeople)]
+    myTurn = gs ^. gsCurrentTurn == p
+    voteInProgressMoves = [CastVote p v | v <- maybe [] (enumFromTo 1) (length <$> M.lookup p votingPeople)]
     caeserMoves = map MoveCaeser laurelEdges
     startSenators = if fromMaybe False (gs ^? senatorsInReserve (gs ^. gsCurrentTurn) . to (> 0))
       then map StartSenator openStartingSpots
       else []
     callVotes = concatMap (map CallVote . adjacentTo gs) (gs ^.. spacesWithSenatorFor p . _1)
     openStartingSpots = filter (spotsAvailable gs) [0..3]
-    myTurn = gs ^. gsCurrentTurn == p
-    laurelsToGive = fromMaybe [] $ gs ^? laurelsForPlayer (gs ^. gsCurrentTurn)
     votingPeople = maybe mempty (M.filterWithKey (\p2 _ -> (gs ^. gsCurrentTurn) /= p2) . view cPieces) committeVoting
     committeVoting = do
       (Edge f _) <- gs ^. gsInProgressVote
