@@ -65,20 +65,20 @@ type NumVotes = Int
 type Rivals = HashMap Player Player
 
 data GameState = GameState
-  { _gsPlayerStates      :: !(HashMap Player PlayerState)
-  , _gsLaurelReserve     :: ![Laurel]
-  , _gsBoard             :: !Board
-  , _gsEdges             :: !LabeledEdges
-  , _gsILaurelReserve    :: ![Laurel]
-  , _gsCaeser            :: !Edge
-  , _gsCurrentTurn       :: !Player
-  , _gsVotes             :: !(HashMap Player NumVotes)
-  , _gsBribes            :: !(HashMap Player (HashMap Player [Laurel]))
-  , _gsInProgressVote    :: !(Maybe Edge)
-  , _gsLaurelsToDispense :: ![Laurel]
-  , _gsPickedUpCaeser    :: !Bool
-  , _gsWinners           :: !(Maybe [Player])
-  , _gsRivals            :: !Rivals
+  { _gsPlayerStates          :: !(HashMap Player PlayerState)
+  , _gsLaurelReserve         :: ![Laurel]
+  , _gsBoard                 :: !Board
+  , _gsEdges                 :: !LabeledEdges
+  , _gsILaurelReserve        :: ![Laurel]
+  , _gsCaeser                :: !Edge
+  , _gsCurrentTurn           :: !Player
+  , _gsVotes                 :: !(HashMap Player NumVotes)
+  , _gsBribes                :: !(HashMap Player (HashMap Player [Laurel]))
+  , _gsInProgressVote        :: !(Maybe Edge)
+  , _gsLaurelsToDispense     :: ![Laurel]
+  , _gsPickedUpACaeserLaurel :: !Bool
+  , _gsWinners               :: !(Maybe [Player])
+  , _gsRivals                :: !Rivals
   }
   deriving (Eq, Show, Generic)
 makeLenses ''GameState

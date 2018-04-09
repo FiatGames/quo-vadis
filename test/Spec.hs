@@ -95,7 +95,7 @@ main = hspec $ do
     it "Move Succeeded" $
       caeserLaurel ^? gsBoard . at 5 . _Just . cPieces . at 1 `shouldBe` Just (Just [1])
     it "Caeser in hand" $
-      caeserLaurel ^. gsPickedUpCaeser `shouldBe` True
+      caeserLaurel ^. gsPickedUpACaeserLaurel `shouldBe` True
     it "Not next turn" $
       caeserLaurel ^. gsCurrentTurn `shouldBe` 1
   describe "Move through Caeser" $ do

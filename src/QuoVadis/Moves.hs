@@ -31,7 +31,7 @@ makeMove :: GameState -> Move -> GameState
 makeMove gs mv = flip execState gs $ case mv of
   MoveCaeser e -> do
     gsCaeser .= e
-    gsPickedUpCaeser .= False
+    gsPickedUpACaeserLaurel .= False
     goToNextTurn
 
   StartSenator s -> do
@@ -47,7 +47,7 @@ makeMove gs mv = flip execState gs $ case mv of
       if forSelf >= needed || caeser
       then do
         moveSenator e
-        haveCaeser <- use gsPickedUpCaeser
+        haveCaeser <- use gsPickedUpACaeserLaurel
         unless haveCaeser goToNextTurn
       else gsInProgressVote .= Just e
 
@@ -78,7 +78,7 @@ makeMove gs mv = flip execState gs $ case mv of
     gsBribes .= mempty
 
     --Is it the next players turn?
-    haveCaeser <- use gsPickedUpCaeser
+    haveCaeser <- use gsPickedUpACaeserLaurel
     anyLaurelsToGive <- not . null <$> use gsLaurelsToDispense
     unless (haveCaeser || anyLaurelsToGive) goToNextTurn
 
@@ -96,7 +96,9 @@ makeMove gs mv = flip execState gs $ case mv of
     goToNextTurn = do
       gsVotes .= mempty
       w <- setGameOver
-      when (isNothing w) nextTurn
+      when (isNothing w) $ do
+        numPlayers <- M.size <$> use gsPlayerStates
+        gsCurrentTurn %= \t -> if t == numPlayers then 1 else t + 1
 
     setGameOver = do
       Just i <- preuse $ innerSanctum . cPieces
@@ -127,7 +129,7 @@ makeMove gs mv = flip execState gs $ case mv of
       caeser <- (==) e <$> use gsCaeser
       unless caeser $ do
         laurelsForPlayer currPlayer %= (++) (fromMaybe [] $ pure <$> mL)
-        gsPickedUpCaeser .= maybe False (view lIsCaeser) mL
+        gsPickedUpACaeserLaurel .= maybe False (view lIsCaeser) mL
         dispenseLaurel (const . Just) gsLaurelReserve (edge e)
       removeFromCommitte $ e ^. eFrom
       addToCommittee $  e ^. eTo
@@ -144,15 +146,11 @@ makeMove gs mv = flip execState gs $ case mv of
       currPlayer <- use gsCurrentTurn
       fromMaybe 0 <$> preuse (senatorsAtSpot currPlayer s . to length)
 
-    nextTurn = do
-      numPlayers <- M.size <$> use gsPlayerStates
-      gsCurrentTurn %= \t -> if t == numPlayers then 1 else t + 1
-
 moves :: Player -> GameState -> [Move]
 moves p gs
   | isJust (gs ^. gsWinners) = []
   | isJust (gs ^. gsInProgressVote) = voteInProgressMoves
-  | gs ^. gsPickedUpCaeser = caeserMoves
+  | gs ^. gsPickedUpACaeserLaurel = caeserMoves
   | not (null (gs ^. gsLaurelsToDispense)) = map DispenseSupportLaurel $ M.keys $ gs ^. gsVotes
   | myTurn = caeserMoves ++ startSenators ++ callVotes
   | otherwise = []
