@@ -103,30 +103,50 @@ innerSanctum = boardSpace 13
 edge :: Edge -> Traversal' GameState (Maybe Laurel)
 edge e = gsEdges . at e . _Just
 
+laurelsForPlayer :: Player -> Traversal' GameState [Laurel]
+laurelsForPlayer p = gsPlayerStates . at p . _Just . psLaurels
+
+senatorsInReserve :: Player -> Traversal' GameState Int
+senatorsInReserve p = gsPlayerStates . at p . _Just . psReserve
+
+senatorsAtSpot :: Player -> BoardSpace -> Traversal' GameState [PlaceInCommittee]
+senatorsAtSpot p s = gsBoard . at s . _Just . cPieces . at p . _Just
+
+--- Folds ---
 spacesWithSenatorFor :: Player -> Fold GameState (Int, Committee)
 spacesWithSenatorFor p = gsBoard . folded . withIndex . filtered (anyOf (_2 . cPieces . at p . _Just . to length) (> 0))
 
---- State Helpers ---
-points :: MonadState GameState m => Player -> m Int
-points p = sum <$> gets (toListOf (gsPlayerStates . at p . _Just . psLaurels . traverse . lScore))
+totalPoints :: Fold GameState (Player, Int)
+totalPoints = gsPlayerStates . folded . withIndex . alongside id (to (sumOf (psLaurels . traverse . lScore)))
 
-oldestSenator :: MonadState GameState m => BoardSpace -> Player -> m PlaceInCommittee
-oldestSenator s p = maybe 0 minimum <$> preuse (boardSpace s . cPieces . at p . _Just)
+pointsForPlayer :: Player -> Fold GameState Int
+pointsForPlayer p = totalPoints . filtered ((==) p . view _1) . _1
 
-dispenseLaurel :: MonadState GameState m => Lens' GameState [Laurel] -> ASetter' GameState (f Laurel) -> (Laurel -> f Laurel -> f Laurel) -> m ()
-dispenseLaurel f t with = do
-  ls <- use f
-  unless (null ls) $ do
-    f .= tail ls
-    t %= with (head ls)
+oldestSenator :: BoardSpace -> Player -> Fold GameState Int
+oldestSenator s p = boardSpace s . cPieces . at p . _Just . to minimum
 
-spotsAvailable :: Board -> Int -> Bool
-spotsAvailable b x = case b^.at x of
+votesNeeded :: BoardSpace -> Fold GameState Int
+votesNeeded s = boardSpace s . cNum . to (\m -> ceiling $ fromIntegral m / 2)
+
+--- Helpers ---
+spotsAvailable :: GameState -> BoardSpace -> Bool
+spotsAvailable gs x = case gs ^. gsBoard . at x of
     Nothing -> False
-    Just c  -> (c^.cNum) > getSum (foldMap (Sum . length) (c^.cPieces))
+    Just c  -> (c^.cNum) > sumOf (cPieces . traversed . to length) c
 
 adjacentTo :: GameState -> BoardSpace -> [Edge]
-adjacentTo gs s = filter (\(Edge f t) -> s == f && spotsAvailable (gs ^. gsBoard) t) $ M.keys $ gs ^. gsEdges
+adjacentTo gs s = filter (\(Edge f t) -> s == f && spotsAvailable gs t) $ M.keys $ gs ^. gsEdges
+
+hasBeatenRival :: GameState -> Player -> Bool
+hasBeatenRival gs p
+  | myPoints == theirPoints = myOldest > theirOldest
+  | otherwise = myPoints > theirPoints
+  where
+    myPoints = fromMaybe 0 $ gs ^? pointsForPlayer p
+    myOldest = fromMaybe maxBound $ gs ^? oldestSenator 13 p
+    myRival = fromMaybe p $ gs ^? gsRivals . at p . _Just
+    theirPoints = fromMaybe 0 $ gs ^? pointsForPlayer myRival
+    theirOldest = fromMaybe maxBound $ gs ^? oldestSenator 13 myRival
 
 makeMove :: GameState -> Move -> GameState
 makeMove gs mv = flip execState gs $ case mv of
@@ -136,15 +156,15 @@ makeMove gs mv = flip execState gs $ case mv of
     goToNextTurn
 
   StartSenator s -> do
-    currentTurn <- use gsCurrentTurn
     addToCommittee s
-    gsPlayerStates . at currentTurn . _Just . psReserve %= \r -> r - 1
+    currPlayer <- use gsCurrentTurn
+    senatorsInReserve currPlayer -= 1
     goToNextTurn
 
   CallVote e -> do
       forSelf <- numForSelf $ e ^. eFrom
-      needed <- votesNeeded $ e ^. eFrom
-      caeser <- caeserEdge e
+      needed <- fromMaybe 0 <$> preuse (votesNeeded (e ^. eFrom))
+      caeser <- (==) e <$> use gsCaeser
       if forSelf >= needed || caeser
       then do
         moveSenator e
@@ -158,15 +178,15 @@ makeMove gs mv = flip execState gs $ case mv of
 
   VoteOver -> do
     --Figure out votes
-    Just (Edge f t) <- use gsInProgressVote
-    forSelf <- numForSelf f
+    Just e <- use gsInProgressVote
+    forSelf <- numForSelf $ e^. eFrom
     votesFromOthers <- use gsVotes
-    let numVotesFromOthers = getSum (foldMap Sum votesFromOthers)
+    let numVotesFromOthers = sum votesFromOthers
         totalVotes = forSelf + numVotesFromOthers
-    needed <- votesNeeded f
-    when (totalVotes >= needed) $ moveSenator (Edge f t)
+    needed <- fromMaybe 0 <$> preuse (votesNeeded (e^. eFrom))
+    when (totalVotes >= needed) $ moveSenator e
     when (totalVotes == needed) $ mapM_ giveSupportLaurel $ M.toList votesFromOthers
-    when (totalVotes > needed) $ replicateM_ (needed - forSelf) $ dispenseLaurel gsILaurelReserve gsLaurelsToDispense (:)
+    when (totalVotes > needed) $ replicateM_ (needed - forSelf) $ dispenseLaurelToList gsILaurelReserve gsLaurelsToDispense
     gsInProgressVote .= Nothing
 
     --Figure out bribes
@@ -180,7 +200,7 @@ makeMove gs mv = flip execState gs $ case mv of
     unless (haveCaeser || anyLaurelsToGive) goToNextTurn
 
   DispenseSupportLaurel p -> do
-    dispenseLaurel gsLaurelsToDispense (gsPlayerStates . at p . _Just . psLaurels) (:)
+    dispenseLaurelToList gsLaurelsToDispense (laurelsForPlayer p)
     gsVotes %= M.alter ((\vs -> if vs <= 1 then Nothing else Just (vs - 1)) =<<) p
     noMoreToGive <- null <$> use gsLaurelsToDispense
     when noMoreToGive goToNextTurn
@@ -188,67 +208,59 @@ makeMove gs mv = flip execState gs $ case mv of
   where
     goToNextTurn = do
       gsVotes .= mempty
-      checkGameOver
-      nextTurn
+      w <- setGameOver
+      when (isNothing w) nextTurn
 
-    checkGameOver = do
+    setGameOver = do
       Just i <- preuse $ innerSanctum . cPieces
       when (M.size i == 5) $ do
-        beatRivals <- filterM hasBeatenRival $ M.keys i
-        gsWinners .= Just beatRivals
-
-    pointsAndOldest p = (,) <$> points p <*> oldestSenator 13 p
-    hasBeatenRival p =  do
-      (tP, oP) <- pointsAndOldest p
-      (rivalP, rivalO) <- preuse (gsRivals . at p . _Just) >>= \case
-        Nothing -> pure (0, maxBound)
-        Just r -> pointsAndOldest r
-      if tP == rivalP
-      then pure $ oP < rivalO
-      else pure $ tP > rivalP
-
-    laurelsForPlayer p = gsPlayerStates . at p . _Just . psLaurels
+        beaten <- hasBeatenRival <$> get
+        gsWinners .= Just (filter beaten $ M.keys i)
+      use gsWinners
 
     transferBribe (p,b) = do
-      currentTurn <- use gsCurrentTurn
-      laurelsForPlayer currentTurn %= \ls -> (L.\\) ls b
+      currPlayer <- use gsCurrentTurn
+      laurelsForPlayer currPlayer %= \ls -> (L.\\) ls b
       laurelsForPlayer p %= (++) b
 
-    giveSupportLaurel (p,votes) = replicateM_ votes $ dispenseLaurel gsILaurelReserve (laurelsForPlayer p) (:)
+    dispenseLaurel :: MonadState GameState m => (Laurel -> f Laurel -> f Laurel) -> Lens' GameState [Laurel] -> ASetter' GameState (f Laurel) -> m ()
+    dispenseLaurel with f t = do
+      ls <- use f
+      unless (null ls) $ do
+        f .= tail ls
+        t %= with (head ls)
+
+    dispenseLaurelToList :: MonadState GameState m => Lens' GameState [Laurel] -> ASetter' GameState [Laurel] -> m ()
+    dispenseLaurelToList = dispenseLaurel (:)
+
+    giveSupportLaurel (p,votes) = replicateM_ votes $ dispenseLaurelToList gsILaurelReserve (laurelsForPlayer p)
 
     moveSenator e = do
-      currentTurn <- use gsCurrentTurn
+      currPlayer <- use gsCurrentTurn
       Just mL <- preuse $ edge e
       caeser <- (==) e <$> use gsCaeser
       unless caeser $ do
-        gsPlayerStates . at currentTurn . _Just . psLaurels %= (++) (fromMaybe [] $ pure <$> mL)
+        laurelsForPlayer currPlayer %= (++) (fromMaybe [] $ pure <$> mL)
         gsPickedUpCaeser .= maybe False (view lIsCaeser) mL
-        dispenseLaurel gsLaurelReserve (edge e) $ const . Just
+        dispenseLaurel (const . Just) gsLaurelReserve (edge e)
       removeFromCommitte $ e ^. eFrom
       addToCommittee $  e ^. eTo
 
     removeFromCommitte = changeCommittee (const $ Just . maybe [] (fromMaybe [] . preview _init))
     addToCommittee = changeCommittee (\m -> Just . maybe [m+1] (++ [m+1]))
     changeCommittee f s = do
-      currentTurn <- use gsCurrentTurn
+      currPlayer <- use gsCurrentTurn
       (boardSpace s . cPieces) %= \pcs ->
-        let
-          maxInC = maybe 0 (fromMaybe 0 . maximumOf traverse) $ maximumOf traverse pcs
-        in M.alter (f maxInC) currentTurn pcs
+        let maxInC = fromMaybe 0 $ maximumOf (traverse . traverse) pcs
+        in M.alter (f maxInC) currPlayer pcs
 
     numForSelf s = do
-      currentTurn <- use gsCurrentTurn
-      fromMaybe (0 :: Int) <$> preuse (boardSpace s . cPieces . at currentTurn . _Just . to length)
-
-    votesNeeded s = do
-      maxInC <- fromMaybe 0 <$> preuse (boardSpace s . cNum)
-      pure $ ceiling $ fromIntegral maxInC / 2
+      currPlayer <- use gsCurrentTurn
+      fromMaybe 0 <$> preuse (senatorsAtSpot currPlayer s . to length)
 
     nextTurn = do
       numPlayers <- M.size <$> use gsPlayerStates
       gsCurrentTurn %= \t -> if t == numPlayers then 1 else t + 1
-
-    caeserEdge e = (==) e <$> use gsCaeser
 
 makeMoves :: GameState -> [Move] -> GameState
 makeMoves = foldl' makeMove
@@ -269,13 +281,13 @@ moves p gs
       then [Bribe p2 ls | p2 <- M.keys votingPeople, ls <- S.toList (S.fromList (L.subsequences laurelsToGive)), not (null ls) ]
       else [CastVote p v | v <- maybe [] (enumFromTo 1) (length <$> M.lookup p votingPeople)]
     caeserMoves = map MoveCaeser laurelEdges
-    startSenators = if fromMaybe False (gs ^? gsPlayerStates . at (gs ^. gsCurrentTurn) . _Just . psReserve . to (> 0))
+    startSenators = if fromMaybe False (gs ^? senatorsInReserve (gs ^. gsCurrentTurn) . to (> 0))
       then map StartSenator openStartingSpots
       else []
     callVotes = concatMap (map CallVote . adjacentTo gs) (gs ^.. spacesWithSenatorFor p . _1)
-    openStartingSpots = filter (spotsAvailable (gs ^. gsBoard)) [0..3]
+    openStartingSpots = filter (spotsAvailable gs) [0..3]
     myTurn = gs ^. gsCurrentTurn == p
-    laurelsToGive = fromMaybe [] $ gs ^? gsPlayerStates . at (gs ^. gsCurrentTurn) . _Just . psLaurels
+    laurelsToGive = fromMaybe [] $ gs ^? laurelsForPlayer (gs ^. gsCurrentTurn)
     votingPeople = maybe mempty (M.filterWithKey (\p2 _ -> (gs ^. gsCurrentTurn) /= p2) . view cPieces) committeVoting
     committeVoting = do
       (Edge f _) <- gs ^. gsInProgressVote

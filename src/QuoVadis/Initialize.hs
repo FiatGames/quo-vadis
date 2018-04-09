@@ -81,3 +81,6 @@ initialGameState reserve rivals ps = GameState
   , _gsRivals = rivals
   }
   where (reserve', edges) = initialEdges reserve
+
+default5Player :: GameState
+default5Player = initialGameState defaultLaurels (M.fromList [(1,2), (2,3), (3,4), (4,5), (5,1)]) 5
