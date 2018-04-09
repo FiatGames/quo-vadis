@@ -4,6 +4,7 @@ import           Control.Lens
 import qualified Data.HashMap.Strict as M
 import           Data.List           (foldl')
 import           QuoVadis.Initialize
+import           QuoVadis.Moves
 import           QuoVadis.Types
 import           Test.Hspec
 
@@ -121,14 +122,27 @@ main = hspec $ do
       moves 1 initGs `shouldBe` [MoveCaeser (Edge {_eFrom = 8, _eTo = 12}),MoveCaeser (Edge {_eFrom = 12, _eTo = 13}),MoveCaeser (Edge {_eFrom = 1, _eTo = 8}),MoveCaeser (Edge {_eFrom = 1, _eTo = 5}),MoveCaeser (Edge {_eFrom = 9, _eTo = 13}),MoveCaeser (Edge {_eFrom = 6, _eTo = 9}),MoveCaeser (Edge {_eFrom = 6, _eTo = 11}),MoveCaeser (Edge {_eFrom = 14, _eTo = 13}),MoveCaeser (Edge {_eFrom = 3, _eTo = 6}),MoveCaeser (Edge {_eFrom = 3, _eTo = 7}),StartSenator 0,StartSenator 1,StartSenator 2,StartSenator 3]
     it "Can call vote" $
       moves 1 canCallVote `shouldBe` [MoveCaeser (Edge {_eFrom = 8, _eTo = 12}),MoveCaeser (Edge {_eFrom = 12, _eTo = 13}),MoveCaeser (Edge {_eFrom = 1, _eTo = 8}),MoveCaeser (Edge {_eFrom = 1, _eTo = 5}),MoveCaeser (Edge {_eFrom = 9, _eTo = 13}),MoveCaeser (Edge {_eFrom = 6, _eTo = 9}),MoveCaeser (Edge {_eFrom = 6, _eTo = 11}),MoveCaeser (Edge {_eFrom = 14, _eTo = 13}),MoveCaeser (Edge {_eFrom = 3, _eTo = 6}),MoveCaeser (Edge {_eFrom = 3, _eTo = 7}), CallVote (Edge 1 5), CallVote (Edge 1 8), CallVote (Edge 3 6), CallVote (Edge 3 7)]
+  describe "End Game" $ do
+    it "Player 1,3,5 win" $
+      lastMove ^. gsWinners `shouldBe` Just [1,3,5]
 
+initGs :: GameState
 initGs = initialGameState defaultLaurels (M.fromList [(1,2), (2,3), (3,4), (4,5), (5,1)]) 5
   & gsPlayerStates . at 1 . _Just . psLaurels .~ [Laurel 4 False, Laurel 3 False]
   & gsEdges . at (Edge 1 5) . _Just .~ Just (Laurel 2 True)
 
+endGame :: GameState
+endGame = initialGameState defaultLaurels (M.fromList [(1,2), (2,3), (3,4), (4,5), (5,1)]) 5
+    & gsBoard . at 14 . _Just . cPieces . at 1 .~ Just [1,2]
+    & gsPlayerStates . at 5 . _Just . psLaurels .~ [Laurel 4 False]
+    & innerSanctum . cPieces . at 3 .~ Just [1,2]
+    & innerSanctum . cPieces . at 4 .~ Just [3]
+    & innerSanctum . cPieces . at 5 .~ Just [4]
+
 makeTestMoves :: [Move] -> GameState
 makeTestMoves = foldl' makeMove initGs
 
+caesarMove, startFirst, startSecond, noHelp, needHelpFails, needHelpSucceed, tooMuchSupport, dispenseLaurels, moveThroughCaeser, caeserLaurel, voteInProgress, moreLaurelsToGive, canCallVote, lastMove:: GameState
 caesarMove = makeTestMoves [MoveCaeser (Edge 8 12)]
 startFirst = makeTestMoves [StartSenator 1]
 startSecond = makeTestMoves [StartSenator 1, StartSenator 1]
@@ -143,3 +157,5 @@ caeserLaurel = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, St
 voteInProgress = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, CallVote (Edge 1 8)]
 moreLaurelsToGive = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, CallVote (Edge 1 8), CastVote 2 1, CastVote 3 1, CastVote 4 1, VoteOver, DispenseSupportLaurel 2]
 canCallVote = makeTestMoves [StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 1, StartSenator 3, StartSenator 3, StartSenator 3, StartSenator 2, StartSenator 0]
+
+lastMove = foldl' makeMove endGame [CallVote (Edge 14 13)]
