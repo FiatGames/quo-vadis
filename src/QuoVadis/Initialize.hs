@@ -63,8 +63,8 @@ defaultLaurels = concat
 
 type NumPlayers = Int
 
-initialGameState :: [Laurel] -> NumPlayers -> GameState
-initialGameState reserve ps = GameState
+initialGameState :: [Laurel] -> Rivals ->  NumPlayers -> GameState
+initialGameState reserve rivals ps = GameState
   { _gsPlayerStates = M.fromList $ map (\p -> (p, initialPlayerState)) [1..ps]
   , _gsLaurelReserve = reserve'
   , _gsBoard = initialBoardState
@@ -76,7 +76,8 @@ initialGameState reserve ps = GameState
   , _gsVotes = mempty
   , _gsInProgressVote = Nothing
   , _gsPickedUpCaeser = False
-  , _gsGameOver = False
+  , _gsWinners = Nothing
   , _gsLaurelsToDispense = mempty
+  , _gsRivals = rivals
   }
   where (reserve', edges) = initialEdges reserve
