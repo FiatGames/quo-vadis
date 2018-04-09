@@ -113,7 +113,7 @@ senatorsAtSpot :: Player -> BoardSpace -> Traversal' GameState [PlaceInCommittee
 senatorsAtSpot p s = gsBoard . at s . _Just . cPieces . at p . _Just
 
 --- Folds ---
-spacesWithSenatorFor :: Player -> Fold GameState (Int, Committee)
+spacesWithSenatorFor :: Player -> Fold GameState (BoardSpace, Committee)
 spacesWithSenatorFor p = gsBoard . folded . withIndex . filtered (anyOf (_2 . cPieces . at p . _Just . to length) (> 0))
 
 totalPoints :: Fold GameState (Player, Int)
@@ -188,7 +188,9 @@ makeMove gs mv = flip execState gs $ case mv of
     needed <- fromMaybe 0 <$> preuse (votesNeeded (e^. eFrom))
     when (totalVotes >= needed) $ moveSenator e
     when (totalVotes == needed) $ mapM_ giveSupportLaurel $ M.toList votesFromOthers
-    when (totalVotes > needed) $ replicateM_ (needed - forSelf) $ dispenseLaurelToList gsILaurelReserve gsLaurelsToDispense
+    when (totalVotes > needed) $ do
+      anyInReserve <- not . null <$> use gsILaurelReserve
+      when anyInReserve $ replicateM_ (needed - forSelf) $ dispenseLaurelToList gsILaurelReserve gsLaurelsToDispense
     gsInProgressVote .= Nothing
 
     --Figure out bribes
@@ -204,6 +206,10 @@ makeMove gs mv = flip execState gs $ case mv of
   DispenseSupportLaurel p -> do
     dispenseLaurelToList gsLaurelsToDispense (laurelsForPlayer p)
     gsVotes %= M.alter ((\vs -> if vs <= 1 then Nothing else Just (vs - 1)) =<<) p
+
+    emptyReserve <- null <$> use gsILaurelReserve
+    when emptyReserve $ gsLaurelsToDispense .= mempty
+
     noMoreToGive <- null <$> use gsLaurelsToDispense
     when noMoreToGive goToNextTurn
 
