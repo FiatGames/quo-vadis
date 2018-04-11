@@ -13,6 +13,7 @@ import           Control.Lens
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Aeson.TH
+import           Data.Maybe
 import qualified Data.Set             as S
 import           Data.Text            (Text)
 import           Data.Time.Clock
@@ -125,23 +126,23 @@ $(deriveJSON defaultOptions ''ClientGameState)
 
 mkClientGameState :: Q.Player -> GameState -> ClientGameState
 mkClientGameState pl gs = ClientGameState
-  { cPlayerState = getMyPiece $ playerStates gs
+  { cPlayerState = fromJust $ getMyPiece $ playerStates gs
   , cBoard = board gs
   , cEdges = edges gs
   , cCaeser = caeser gs
   , cCurrentTurn = currentTurn gs
-  , cVotes = getMyPiece $ votes gs
-  , cBribes = getMyPiece $ bribes gs
+  , cVotes = fromMaybe 0 $ getMyPiece $ votes gs
+  , cBribes = fromMaybe [] $ getMyPiece $ bribes gs
   , cInProgressVote = inProgressVote gs
   , cLaurelsToDispense = laurelsToDispense gs
   , cPickedUpACaeserLaurel = pickedUpACaeserLaurel gs
   , cWinners = winners gs
-  , cRival = getMyPiece $ rivals gs
+  , cRival = fromJust $ getMyPiece $ rivals gs
   , cMoves = Q.moves pl $ gs ^. from gameStateIso
   }
   where
-    getMyPiece :: [(Q.Player, b)] -> b
-    getMyPiece = head . toListOf (traverse . filtered ((==) pl . fst) . _2)
+    getMyPiece :: [(Q.Player, b)] -> Maybe b
+    getMyPiece = preview _head . toListOf (traverse . filtered ((==) pl . fst) . _2)
 
 instance FiatGame Settings where
   type Move Settings = Q.Move
