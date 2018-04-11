@@ -12,6 +12,7 @@ import           Control.Monad.State.Strict
 import qualified Data.HashMap.Strict        as M
 import           Data.List                  as L
 import           Data.Maybe
+import qualified Data.Set                   as S
 import           QuoVadis.Types
 
 makeMoves :: GameState -> [Move] -> GameState
@@ -25,7 +26,8 @@ data Move
   | Bribe Player Player [Laurel]
   | VoteOver
   | DispenseSupportLaurel Player
-  deriving (Eq, Show)
+  | Pass
+  deriving (Eq, Show, Ord)
 
 makeMove :: GameState -> Move -> GameState
 makeMove gs mv = flip execState gs $ case mv of
@@ -92,6 +94,13 @@ makeMove gs mv = flip execState gs $ case mv of
     noMoreToGive <- null <$> use gsLaurelsToDispense
     when noMoreToGive goToNextTurn
 
+  Pass -> do
+    ls <- use gsLaurelsToDispense
+    unless (null ls) $ do
+      validPlayers <- use gsVotes
+      forM_ (M.toList validPlayers) $ \(p,vs) -> replicateM_ vs $ dispenseLaurelToList gsLaurelsToDispense (laurelsForPlayer p)
+    goToNextTurn
+
   where
     goToNextTurn = do
       gsVotes .= mempty
@@ -146,15 +155,20 @@ makeMove gs mv = flip execState gs $ case mv of
       currPlayer <- use gsCurrentTurn
       fromMaybe 0 <$> preuse (senatorsAtSpot currPlayer s . to length)
 
+bribes :: Player -> GameState -> [Move]
+bribes p gs = [Bribe p p2 ls | p2 <- delete p $ M.keys (gs ^. gsPlayerStates) , ls <- S.toList (S.fromList (L.subsequences laurelsToGive)), not (null ls) ]
+    where laurelsToGive = fromMaybe [] $ gs ^? laurelsForPlayer p
+
 moves :: Player -> GameState -> [Move]
 moves p gs
   | isJust (gs ^. gsWinners) = []
-  | isJust (gs ^. gsInProgressVote) = voteInProgressMoves
-  | gs ^. gsPickedUpACaeserLaurel = caeserMoves
-  | not (null (gs ^. gsLaurelsToDispense)) = map DispenseSupportLaurel $ M.keys $ gs ^. gsVotes
-  | myTurn = caeserMoves ++ startSenators ++ callVotes
+  | isJust (gs ^. gsInProgressVote) = VoteOver : voteInProgressMoves
+  | gs ^. gsPickedUpACaeserLaurel = passIfMyTurn ++ caeserMoves
+  | not (null (gs ^. gsLaurelsToDispense)) = passIfMyTurn ++ map DispenseSupportLaurel (M.keys $ gs ^. gsVotes)
+  | myTurn = passIfMyTurn ++ caeserMoves ++ startSenators ++ callVotes
   | otherwise = []
   where
+    passIfMyTurn = [Pass | myTurn]
     myTurn = gs ^. gsCurrentTurn == p
     voteInProgressMoves = [CastVote p v | v <- maybe [] (enumFromTo 1) (length <$> M.lookup p votingPeople)]
     caeserMoves = map MoveCaeser laurelEdges

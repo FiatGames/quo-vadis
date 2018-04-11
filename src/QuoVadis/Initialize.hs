@@ -2,8 +2,11 @@
 
 module QuoVadis.Initialize where
 
-import qualified Data.HashMap.Strict as M
+import           Control.Monad.Except
+import qualified Data.HashMap.Strict  as M
+import qualified Data.List            as L
 import           QuoVadis.Types
+import           System.Random
 
 initialPlayerState :: PlayerState
 initialPlayerState = PlayerState
@@ -63,9 +66,9 @@ defaultLaurels = concat
 
 type NumPlayers = Int
 
-initialGameState :: [Laurel] -> Rivals ->  NumPlayers -> GameState
-initialGameState reserve rivals ps = GameState
-  { _gsPlayerStates = M.fromList $ map (\p -> (p, initialPlayerState)) [1..ps]
+initialGameState :: [Laurel] -> Rivals -> GameState
+initialGameState reserve rivals = GameState
+  { _gsPlayerStates = M.fromList $ map (\p -> (p, initialPlayerState)) [1..length rivals]
   , _gsLaurelReserve = reserve'
   , _gsBoard = initialBoardState
   , _gsEdges = edges
@@ -83,4 +86,35 @@ initialGameState reserve rivals ps = GameState
   where (reserve', edges) = initialEdges reserve
 
 default5Player :: GameState
-default5Player = initialGameState defaultLaurels (M.fromList [(1,2), (2,3), (3,4), (4,5), (5,1)]) 5
+default5Player = initialGameState defaultLaurels (M.fromList [(1,2), (2,3), (3,4), (4,5), (5,1)])
+
+randomInitialState :: (MonadIO m) => NumPlayers -> m GameState
+randomInitialState ps = do
+  rivals <- liftIO $ randomRival [1..ps]
+  laurels <- liftIO $ randomShuffle defaultLaurels
+  pure $ initialGameState laurels (M.fromList rivals)
+
+randomShuffle :: (MonadIO m) => [a] -> m [a]
+randomShuffle = go
+  where
+    go [] = pure []
+    go xs = do
+      i <- liftIO $ randomRIO (0,length xs - 1)
+      let (hs,ts)
+            | i == 0 = ([],tail xs)
+            | i == length xs - 1 = (init xs,[])
+            | otherwise = let (hs', ts') = L.splitAt i xs in (hs', tail ts')
+      (:) (xs !! i) <$> go (hs ++ ts)
+
+randomRival :: (MonadIO m) => [Player] -> m [(Player,Player)]
+randomRival xs = go (xs,xs)
+  where
+    go ([p],[r])     = pure [(p,r)]
+    go (p:ps,rs) = do
+      rrs <- randomShuffle $ L.delete p rs
+      if null rrs
+      then pure []
+      else do
+        let rs' = if p `L.elem` rs then p:tail rrs else tail rrs
+        (:) (p,head rrs) <$> go (ps,rs')
+    go _ = pure []
