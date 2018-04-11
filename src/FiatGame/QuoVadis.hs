@@ -151,7 +151,7 @@ instance FiatGame Settings where
   type ClientSettings Settings = Settings
 
   defaultSettings :: (MonadIO m) => m Settings
-  defaultSettings = pure $ Settings [] [] 0
+  defaultSettings = pure $ Settings [] [] 3600000
 
   addPlayer :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> m (Maybe Settings)
   addPlayer p (Settings ps _ tt)
@@ -160,12 +160,13 @@ instance FiatGame Settings where
 
   initialGameState :: (MonadIO m) => Settings -> m (Either Text (Settings, FiatGame.GameState GameState Q.Move))
   initialGameState (Settings ps _ tt)
-    | length ps < 2 || length ps > 5 = pure $ Left "Incorrect number of players"
+    | length ps < 3 || length ps > 5 = pure $ Left "Incorrect number of players"
     | otherwise = do
       rPs <- Q.randomShuffle [1..length ps]
       let s = Settings ps (zip ps rPs) tt
       gs <- Q.randomInitialState (length ps)
-      pure $ Right (s,FiatGame.GameState FiatGame.Playing (gs^.gameStateIso) Nothing)
+      moveTime <- addUTCTime (fromInteger $ turnTimeMilliseconds s) <$> liftIO getCurrentTime
+      pure $ Right (s,FiatGame.GameState FiatGame.Playing (gs^.gameStateIso) $ Just $ FiatGame.FutureMove moveTime Q.Pass)
 
   makeMove :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> m (FiatGame.GameState GameState Q.Move)
   makeMove _ s (FiatGame.GameState _ g _) m = case g' ^.  Q.gsWinners of
