@@ -73,20 +73,20 @@ gameStateIso :: Iso' Q.GameState GameState
 gameStateIso = iso fromQ toQ
   where
     fromQ qgs = GameState
-      { playerStates = qgs ^. Q.gsPlayerStates . to toList
+      { playerStates = toList $ qgs ^. Q.gsPlayerStates
       , laurelReserve = qgs ^. Q.gsLaurelReserve
-      , board = fmap (over _2 (view committeIso)) $ qgs ^. Q.gsBoard . to toList
+      , board = toList $ fmap (view committeIso) $ qgs ^. Q.gsBoard
       , edges = qgs ^. Q.gsEdges . to toList
       , iLaurelReserve = qgs ^. Q.gsILaurelReserve
       , caeser = qgs ^. Q.gsCaeser
       , currentTurn = qgs ^. Q.gsCurrentTurn
       , votes =  qgs ^. Q.gsVotes . to toList
-      , bribes = fmap (over _2 toList) $ qgs ^. Q.gsBribes . to toList
+      , bribes = toList $ fmap toList $ qgs ^. Q.gsBribes
       , inProgressVote = qgs ^. Q.gsInProgressVote
       , laurelsToDispense = qgs ^. Q.gsLaurelsToDispense
       , pickedUpACaeserLaurel = qgs ^. Q.gsPickedUpACaeserLaurel
       , winners =  qgs ^. Q.gsWinners
-      , rivals = qgs ^. Q.gsRivals . to toList
+      , rivals = toList $ qgs ^. Q.gsRivals
       }
     toQ gs = Q.GameState
       { Q._gsPlayerStates = fromList $ playerStates gs
@@ -125,20 +125,23 @@ $(deriveJSON defaultOptions ''ClientGameState)
 
 mkClientGameState :: Q.Player -> GameState -> ClientGameState
 mkClientGameState pl gs = ClientGameState
-  { cPlayerState = head $ playerStates gs ^.. traverse . filtered ((==) pl . fst) . _2
+  { cPlayerState = getMyPiece $ playerStates gs
   , cBoard = board gs
   , cEdges = edges gs
   , cCaeser = caeser gs
   , cCurrentTurn = currentTurn gs
-  , cVotes = head $ votes gs ^.. traverse . filtered ((==) pl . fst) . _2
-  , cBribes = head $ bribes gs ^.. traverse . filtered ((==) pl . fst) . _2
+  , cVotes = getMyPiece $ votes gs
+  , cBribes = getMyPiece $ bribes gs
   , cInProgressVote = inProgressVote gs
   , cLaurelsToDispense = laurelsToDispense gs
   , cPickedUpACaeserLaurel = pickedUpACaeserLaurel gs
   , cWinners = winners gs
-  , cRival = undefined
+  , cRival = getMyPiece $ rivals gs
   , cMoves = Q.moves pl $ gs ^. from gameStateIso
   }
+  where
+    getMyPiece :: [(Q.Player, b)] -> b
+    getMyPiece = head . toListOf (traverse . filtered ((==) pl . fst) . _2)
 
 instance FiatGame Settings where
   type Move Settings = Q.Move
