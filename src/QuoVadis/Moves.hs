@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -13,6 +14,7 @@ import qualified Data.HashMap.Strict        as M
 import           Data.List                  as L
 import           Data.Maybe
 import qualified Data.Set                   as S
+import           GHC.Generics               hiding (from, to)
 import           QuoVadis.Types
 
 makeMoves :: GameState -> [Move] -> GameState
@@ -27,7 +29,7 @@ data Move
   | VoteOver
   | DispenseSupportLaurel Player
   | Pass
-  deriving (Eq, Show, Ord)
+  deriving (Eq, Show, Ord, Generic)
 
 makeMove :: GameState -> Move -> GameState
 makeMove gs mv = flip execState gs $ case mv of
