@@ -19,7 +19,6 @@ library
   exposed-modules:     QuoVadis.Types
                      , QuoVadis.Initialize
                      , QuoVadis.Moves
-                     , QuoVadis.Class
                      , FiatGame.QuoVadis
   build-depends:       base >= 4.7 && < 5
                      , containers
