@@ -13,6 +13,7 @@ import           Control.Lens
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Aeson.TH
+import qualified Data.List            as L
 import           Data.Maybe
 import qualified Data.Set             as S
 import           Data.Text            (Text)
@@ -201,7 +202,9 @@ getAllMoves p s (FiatGame.GameState _ g _)
       where pl = getQPlayer s p
 
 getQPlayer :: Settings -> FiatGame.FiatPlayer -> Q.Player
-getQPlayer s p = snd $ head $ filter ((==) p . fst) $ playerMap s
+getQPlayer s p = case L.find ((==) p . fst) $ playerMap s of
+  Nothing     -> error "This player is not here!"
+  Just (_,qp) -> qp
 
 getFutureMoveTime :: (MonadIO m) => Settings -> m UTCTime
 getFutureMoveTime s = addUTCTime (fromIntegral (turnTimeMilliseconds s) / 1000) <$> liftIO getCurrentTime
