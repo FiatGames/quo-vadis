@@ -182,9 +182,11 @@ instance FiatGame Settings where
       g' = Q.makeMove (g^.from gameStateIso) m
 
   isPlayersTurn :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> m Bool
-  isPlayersTurn p s g  _      = pure $ not $ null $ getAllMoves p s g
+  isPlayersTurn FiatGame.System _ _ _ = pure True
+  isPlayersTurn p s g  _              = pure $ not $ null $ getAllMoves p s g
 
   isMoveValid :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> m Bool
+  isMoveValid FiatGame.System _ _ _ = pure True
   isMoveValid p s g m = pure $ any (bribeEq m) $ getAllMoves p s g
 
   toClientSettingsAndState :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> Maybe (FiatGame.GameState GameState Q.Move) -> m (Settings, Maybe (FiatGame.GameState ClientGameState Q.Move))
