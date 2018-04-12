@@ -165,14 +165,14 @@ instance FiatGame Settings where
       rPs <- Q.randomShuffle [1..length ps]
       let s = Settings ps (zip ps rPs) tt
       gs <- Q.randomInitialState (length ps)
-      moveTime <- addUTCTime (fromInteger $ turnTimeMilliseconds s) <$> liftIO getCurrentTime
+      moveTime <- getFutureMoveTime s
       pure $ Right (s,FiatGame.GameState FiatGame.Playing (gs^.gameStateIso) $ Just $ FiatGame.FutureMove moveTime Q.Pass)
 
   makeMove :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> m (FiatGame.GameState GameState Q.Move)
   makeMove _ s (FiatGame.GameState _ g _) m = case g' ^.  Q.gsWinners of
       Just _ -> pure $  FiatGame.GameState FiatGame.Done (g'^.gameStateIso) Nothing
       Nothing -> do
-        moveTime <- addUTCTime (fromInteger $ turnTimeMilliseconds s) <$> liftIO getCurrentTime
+        moveTime <- getFutureMoveTime s
         let mv = case g' ^. Q.gsInProgressVote of
                   Nothing -> Q.Pass
                   Just _  -> Q.VoteOver
@@ -202,3 +202,6 @@ getAllMoves p s (FiatGame.GameState _ g _)
 
 getQPlayer :: Settings -> FiatGame.FiatPlayer -> Q.Player
 getQPlayer s p = snd $ head $ filter ((==) p . fst) $ playerMap s
+
+getFutureMoveTime :: (MonadIO m) => Settings -> m UTCTime
+getFutureMoveTime s = addUTCTime (fromIntegral (turnTimeMilliseconds s) / 1000) <$> liftIO getCurrentTime
