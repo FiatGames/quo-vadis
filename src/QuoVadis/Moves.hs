@@ -177,6 +177,7 @@ moves p gs
     startSenators = if fromMaybe False (gs ^? senatorsInReserve (gs ^. gsCurrentTurn) . to (> 0))
       then map StartSenator openStartingSpots
       else []
+    --Fix so that you can't call a vote in a committee that doesn't have enough senators, and also limit calling vote to a full committee
     callVotes = concatMap (map CallVote . adjacentTo gs) (gs ^.. spacesWithSenatorFor p . _1)
     openStartingSpots = filter (spotsAvailable gs) [0..3]
     votingPeople = maybe mempty (M.filterWithKey (\p2 _ -> (gs ^. gsCurrentTurn) /= p2) . view cPieces) committeVoting
