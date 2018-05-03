@@ -41,7 +41,7 @@ packages:
 # (e.g., acme-missiles-0.3)
 extra-deps:
 - git: https://github.com/FiatGames/fiat-game.git
-  commit: 1b96ee93cf03c7ae96859f5514f502e0272ca236
+  commit: a37714e08a6c2cc3e370bbfbdc14634b97bd1655
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

@@ -11,6 +11,7 @@ module FiatGame.QuoVadis where
 
 import           Control.Lens
 import           Control.Monad.Except
+import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Aeson.TH
 import qualified Data.List            as L
@@ -150,16 +151,17 @@ instance FiatGame Settings where
   type State Settings = GameState
   type ClientState Settings = ClientGameState
   type ClientSettings Settings = Settings
+  type Environment Settings = ()
 
-  defaultSettings :: (MonadIO m) => m Settings
+  defaultSettings :: (MonadIO m) => ReaderT () m Settings
   defaultSettings = pure $ Settings [] [] 3600000
 
-  addPlayer :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> m (Maybe Settings)
+  addPlayer :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> ReaderT ()  m (Maybe Settings)
   addPlayer p (Settings ps _ tt)
     | length ps >= 5 = pure Nothing
     | otherwise  = pure $ Just $ Settings (p:ps) [] tt
 
-  initialGameState :: (MonadIO m) => Settings -> m (Either Text (Settings, FiatGame.GameState GameState Q.Move))
+  initialGameState :: (MonadIO m) => Settings -> ReaderT () m (Either Text (Settings, FiatGame.GameState GameState Q.Move))
   initialGameState (Settings ps _ tt)
     | length ps < 3 || length ps > 5 = pure $ Left "Incorrect number of players"
     | otherwise = do
@@ -169,7 +171,7 @@ instance FiatGame Settings where
       moveTime <- getFutureMoveTime s
       pure $ Right (s,FiatGame.GameState FiatGame.Playing (gs^.gameStateIso) $ Just $ FiatGame.FutureMove moveTime Q.Pass)
 
-  makeMove :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> m (FiatGame.GameState GameState Q.Move)
+  makeMove :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> ReaderT () m (FiatGame.GameState GameState Q.Move)
   makeMove _ s (FiatGame.GameState _ g _) m = case g' ^.  Q.gsWinners of
       Just _ -> pure $  FiatGame.GameState FiatGame.Done (g'^.gameStateIso) Nothing
       Nothing -> do
@@ -181,15 +183,15 @@ instance FiatGame Settings where
     where
       g' = Q.makeMove (g^.from gameStateIso) m
 
-  isPlayersTurn :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> m Bool
+  isPlayersTurn :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> ReaderT () m Bool
   isPlayersTurn FiatGame.System _ _ _ = pure True
   isPlayersTurn p s g  _              = pure $ not $ null $ getAllMoves p s g
 
-  isMoveValid :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> m Bool
+  isMoveValid :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> FiatGame.GameState GameState Q.Move -> Q.Move -> ReaderT () m Bool
   isMoveValid FiatGame.System _ _ _ = pure True
   isMoveValid p s g m = pure $ any (bribeEq m) $ getAllMoves p s g
 
-  toClientSettingsAndState :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> Maybe (FiatGame.GameState GameState Q.Move) -> m (Settings, Maybe (FiatGame.GameState ClientGameState Q.Move))
+  toClientSettingsAndState :: (MonadIO m) => FiatGame.FiatPlayer -> Settings -> Maybe (FiatGame.GameState GameState Q.Move) -> ReaderT () m (Settings, Maybe (FiatGame.GameState ClientGameState Q.Move))
   toClientSettingsAndState _ s Nothing = pure (s, Nothing)
   toClientSettingsAndState p s (Just (FiatGame.GameState st gs mv)) = pure (s, Just $ FiatGame.GameState st (mkClientGameState (getQPlayer s p) gs) mv)
 
